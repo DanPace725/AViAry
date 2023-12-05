@@ -5,12 +5,12 @@ FROM node:latest
 WORKDIR /app
 
 # Step 3: Copy package.json and install dependencies
-COPY package.json ./
-COPY package-lock.json ./
+COPY aviary/package.json ./
+COPY aviary/package-lock.json ./
 RUN npm install
 
 # Step 4: Copy the rest of your app's source code
-COPY . ./
+COPY . .
 
 # Step 5: Expose port and run the application
 EXPOSE 3000
