@@ -1,6 +1,9 @@
 # Step 1: Use an official Node runtime as a parent image
 FROM node:latest
 
+# Create app directory
+RUN mkdir -p /app
+
 # Step 2: Set the working directory
 WORKDIR /app
 

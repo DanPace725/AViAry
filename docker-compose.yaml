@@ -5,8 +5,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend:/app
-      - ./usr/src/app/node_modules
+      - ./frontend:/app/aviary
+      - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
     depends_on:
@@ -17,8 +17,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./backend:/app
-      - ./usr/src/app/node_modules
+      - ./backend:/app/aviary
+      - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://username:password@db:5432/dbname

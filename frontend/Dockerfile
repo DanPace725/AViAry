@@ -1,8 +1,11 @@
 # Step 1: Use an official Node runtime as a parent image
 FROM node:latest
 
+# Create app directory
+RUN mkdir -p /app/aviary
+
 # Step 2: Set the working directory
-WORKDIR /app
+WORKDIR /app/aviary
 
 # Step 3: Copy package.json and install dependencies
 COPY aviary/package.json ./
