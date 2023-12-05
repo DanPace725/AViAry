@@ -5,7 +5,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend:/app/aviary
+      - ./frontend/aviary:/app/aviary
       - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
@@ -17,7 +17,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./backend:/app/aviary
+      - ./backend/aviary:/app/aviary
       - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development

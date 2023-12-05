@@ -2,10 +2,10 @@
 FROM node:latest
 
 # Create app directory
-RUN mkdir -p /app
+RUN mkdir -p /app/aviary
 
 # Step 2: Set the working directory
-WORKDIR /app
+WORKDIR /app/aviary
 
 # Step 3: Copy package.json and install dependencies
 COPY aviary/package.json ./
