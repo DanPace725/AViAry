@@ -17,8 +17,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./backend:/usr/src/app
-      - /usr/src/app/node_modules
+      - ./backend:/app
+      - usr/src/app/node_modules
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://username:password@db:5432/dbname
