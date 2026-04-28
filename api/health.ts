@@ -1,4 +1,4 @@
-import { getHealth, json } from './_shared';
+import { getHealth, json } from './_shared.js';
 
 export default {
   fetch(request: Request) {

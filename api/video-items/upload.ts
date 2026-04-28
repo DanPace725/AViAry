@@ -1,4 +1,4 @@
-import { json, uploadVideoItem } from '../_shared';
+import { json, uploadVideoItem } from '../_shared.js';
 
 export const config = {
   maxDuration: 60

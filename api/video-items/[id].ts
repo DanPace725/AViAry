@@ -1,4 +1,4 @@
-import { getVideoDetail, json } from '../_shared';
+import { getVideoDetail, json } from '../_shared.js';
 
 function getVideoId(request: Request) {
   const pathname = new URL(request.url).pathname;

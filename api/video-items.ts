@@ -1,4 +1,4 @@
-import { createVideoItem, getVideoItems, json } from './_shared';
+import { createVideoItem, getVideoItems, json } from './_shared.js';
 
 export default {
   fetch(request: Request) {
