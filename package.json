@@ -1,0 +1,21 @@
+{
+  "name": "aviary",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @aviary/web",
+    "dev:api": "npm run dev --workspace @aviary/api",
+    "dev:worker": "npm run dev --workspace @aviary/worker",
+    "build": "npm run build --workspace @aviary/shared && npm run build --workspace @aviary/db && npm run build --workspace @aviary/api && npm run build --workspace @aviary/worker && npm run build --workspace @aviary/web",
+    "typecheck": "npm run typecheck --workspace @aviary/shared && npm run typecheck --workspace @aviary/db && npm run typecheck --workspace @aviary/api && npm run typecheck --workspace @aviary/worker && npm run typecheck --workspace @aviary/web",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
