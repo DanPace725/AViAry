@@ -82,7 +82,7 @@ p {
 h1 {
   color: #0f172a;
   font-size: clamp(2.35rem, 12vw, 5.75rem);
-  letter-spacing: -0.08em;
+  letter-spacing: 0;
   line-height: 0.9;
   margin-bottom: 1.25rem;
   max-width: 860px;
@@ -91,7 +91,7 @@ h1 {
 h2 {
   color: #0f172a;
   font-size: clamp(1.8rem, 5vw, 3rem);
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
   line-height: 1;
   margin-bottom: 0.5rem;
 }
@@ -186,6 +186,15 @@ h3 {
   padding: 1rem;
 }
 
+.video-card {
+  display: grid;
+}
+
+.video-card--selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
 .video-card__header {
   align-items: center;
   color: #64748b;
@@ -250,6 +259,63 @@ h3 {
   height: 100%;
 }
 
+.card-action {
+  align-self: end;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #1e3a8a;
+  font-weight: 800;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  width: 100%;
+}
+
+.transcript-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.transcript-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.transcript-summary,
+.transcript-chunk {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.transcript-summary {
+  align-self: start;
+}
+
+.transcript-body {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 32rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.transcript-chunk p {
+  white-space: pre-wrap;
+}
+
+.transcript-chunk__meta {
+  align-items: center;
+  color: #64748b;
+  display: flex;
+  font-size: 0.82rem;
+  font-weight: 800;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
 .two-column {
   display: grid;
   gap: 1rem;
@@ -277,5 +343,9 @@ h3 {
 
   .two-column > :first-child {
     grid-column: span 2;
+  }
+
+  .transcript-layout {
+    grid-template-columns: minmax(13rem, 0.85fr) minmax(0, 2.15fr);
   }
 }

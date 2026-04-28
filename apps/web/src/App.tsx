@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { sampleVideoItems, type ProcessingStatus, type VideoItem } from '@aviary/shared';
+import { sampleVideoItems, type ProcessingStatus, type VideoItem, type VideoItemDetail } from '@aviary/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
 
@@ -44,9 +44,17 @@ function formatDuration(seconds?: number) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-function VideoCard({ video }: { video: VideoItem }) {
+function VideoCard({
+  video,
+  isSelected,
+  onOpen
+}: {
+  video: VideoItem;
+  isSelected: boolean;
+  onOpen: () => void;
+}) {
   return (
-    <article className="video-card">
+    <article className={`video-card${isSelected ? ' video-card--selected' : ''}`}>
       <div className="video-card__header">
         <span className={`status-pill status-pill--${video.status}`}>{statusLabels[video.status]}</span>
         <span>{formatDuration(video.durationSeconds)}</span>
@@ -61,12 +69,77 @@ function VideoCard({ video }: { video: VideoItem }) {
       <div className="progress-bar" aria-label={`${statusLabels[video.status]} progress`}>
         <span style={{ width: `${getProgress(video.status)}%` }} />
       </div>
+      <button className="card-action" type="button" onClick={onOpen}>
+        View transcript
+      </button>
     </article>
+  );
+}
+
+function TranscriptDetail({
+  detail,
+  isLoading,
+  message
+}: {
+  detail?: VideoItemDetail;
+  isLoading: boolean;
+  message: string;
+}) {
+  const transcript = detail?.transcript;
+
+  return (
+    <section className="section-block transcript-panel" aria-labelledby="transcript-heading">
+      <div className="section-block__header">
+        <div>
+          <p className="eyebrow">Phase 2 loop</p>
+          <h2 id="transcript-heading">Transcript detail</h2>
+        </div>
+        {detail ? <span className={`status-pill status-pill--${detail.item.status}`}>{statusLabels[detail.item.status]}</span> : null}
+      </div>
+
+      {isLoading ? <p>Loading transcript...</p> : null}
+      {!isLoading && !detail ? <p>{message}</p> : null}
+      {!isLoading && detail ? (
+        <div className="transcript-layout">
+          <aside className="transcript-summary">
+            <h3>{detail.item.title}</h3>
+            <p>{detail.item.summary ?? 'AVIARY has not generated a summary for this capture yet.'}</p>
+            {detail.item.sourceUrl ? (
+              <a href={detail.item.sourceUrl} target="_blank" rel="noreferrer">
+                Open source
+              </a>
+            ) : null}
+          </aside>
+          <div className="transcript-body">
+            {transcript ? (
+              transcript.chunks.map((chunk) => (
+                <article className="transcript-chunk" key={chunk.id}>
+                  <div className="transcript-chunk__meta">
+                    <span>Chunk {chunk.chunkIndex + 1}</span>
+                    {chunk.tokenCount ? <span>{chunk.tokenCount} est. tokens</span> : null}
+                  </div>
+                  <p>{chunk.text}</p>
+                </article>
+              ))
+            ) : (
+              <p>
+                No transcript is stored for this item yet. Upload media, run the worker, then refresh the
+                capture when processing is ready.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 function App() {
   const [items, setItems] = useState<VideoItem[]>(sampleVideoItems);
+  const [selectedVideoId, setSelectedVideoId] = useState<string>();
+  const [detail, setDetail] = useState<VideoItemDetail>();
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailMessage, setDetailMessage] = useState('Select a capture to inspect its stored transcript.');
   const [sourceUrl, setSourceUrl] = useState('');
   const [message, setMessage] = useState('Paste a link or upload media to create a queued item.');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,12 +160,44 @@ function App() {
     );
   }
 
+  async function refreshDetail(videoId: string) {
+    setIsDetailLoading(true);
+
+    try {
+      const response = await fetch(`${hasConfiguredApi}/video-items/${videoId}`);
+      if (!response.ok) {
+        throw new Error('Unable to load transcript detail.');
+      }
+
+      const data = (await response.json()) as { detail: VideoItemDetail; source: 'sample' | 'database' };
+      setDetail(data.detail);
+      setDetailMessage(
+        data.detail.transcript
+          ? 'Transcript loaded.'
+          : data.source === 'sample'
+            ? 'Sample captures do not have stored transcripts.'
+            : 'This capture does not have a stored transcript yet.'
+      );
+    } catch (error) {
+      setDetail(undefined);
+      setDetailMessage(error instanceof Error ? error.message : 'Unable to load transcript detail.');
+    } finally {
+      setIsDetailLoading(false);
+    }
+  }
+
   useEffect(() => {
     refreshItems().catch((error: unknown) => {
       const errorMessage = error instanceof Error ? error.message : 'Unable to reach the API.';
       setMessage(errorMessage);
     });
   }, []);
+
+  useEffect(() => {
+    if (selectedVideoId) {
+      refreshDetail(selectedVideoId);
+    }
+  }, [selectedVideoId]);
 
   async function handleUrlCapture(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,9 +216,11 @@ function App() {
         throw new Error(await response.text());
       }
 
+      const data = (await response.json()) as { item: VideoItem };
       setSourceUrl('');
       setMessage('Link captured. The worker will need uploaded media before transcription can run.');
       await refreshItems();
+      setSelectedVideoId(data.item.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to capture link.');
     } finally {
@@ -141,8 +248,10 @@ function App() {
         throw new Error(await response.text());
       }
 
+      const data = (await response.json()) as { item: VideoItem };
       setMessage('Upload saved to Vercel Blob and queued for transcription.');
       await refreshItems();
+      setSelectedVideoId(data.item.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to upload media.');
     } finally {
@@ -201,10 +310,17 @@ function App() {
         </div>
         <div className="video-grid">
           {items.map((video) => (
-            <VideoCard key={video.id} video={video} />
+            <VideoCard
+              key={video.id}
+              video={video}
+              isSelected={video.id === selectedVideoId}
+              onOpen={() => setSelectedVideoId(video.id)}
+            />
           ))}
         </div>
       </section>
+
+      <TranscriptDetail detail={detail} isLoading={isDetailLoading} message={detailMessage} />
 
       <section className="section-block two-column" id="chat-preview">
         <div>

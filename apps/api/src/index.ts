@@ -1,11 +1,13 @@
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { createVideoCapture, getSql, listVideoItems } from '@aviary/db';
+import { createVideoCapture, getSql, getVideoItemDetail, listVideoItems } from '@aviary/db';
 import { createVideoItemSchema, sampleVideoItems } from '@aviary/shared';
 import { put } from '@vercel/blob';
 import Fastify from 'fastify';
 import { randomUUID } from 'node:crypto';
-import 'dotenv/config';
+import { config } from 'dotenv';
+
+config({ path: ['.env.local', '.env'] });
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -59,6 +61,27 @@ app.get('/video-items', async () => {
 
   const items = await listVideoItems(sql, devUserId);
   return { items, source: 'database' };
+});
+
+app.get('/video-items/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const sql = getDatabase();
+
+  if (!sql) {
+    const item = sampleVideoItems.find((video) => video.id === id);
+    if (!item) {
+      return reply.code(404).send({ message: 'Video item not found.' });
+    }
+
+    return { detail: { item }, source: 'sample' };
+  }
+
+  const detail = await getVideoItemDetail(sql, devUserId, id);
+  if (!detail) {
+    return reply.code(404).send({ message: 'Video item not found.' });
+  }
+
+  return { detail, source: 'database' };
 });
 
 app.post('/video-items', async (request, reply) => {

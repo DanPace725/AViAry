@@ -72,10 +72,14 @@ Phase 2 uses:
 - `BLOB_READ_WRITE_TOKEN` for Vercel Blob uploads.
 - `OPENAI_API_KEY` for hosted transcription.
 - `VITE_API_URL` for the PWA to call the API during local development.
+- `ffmpeg` on the worker PATH for extracting audio from uploaded video files.
 
-The first worker pass processes one queued upload at a time. URL-only captures are saved to the library, but transcription requires uploaded media until platform-specific download adapters exist.
+The first worker pass processes one queued upload at a time. URL-only captures are saved to the library, but transcription requires uploaded media until platform-specific download adapters exist. Once the worker finishes, select the capture in the web app to inspect the stored transcript chunks.
+
+See `docs/setup/external-services.md` for Neon, Vercel Blob, OpenAI, and `ffmpeg` setup instructions.
 
 ## Planning Docs
 
 - `AVIARY_REDESIGN_PLAN.md` contains the product and architecture plan.
 - `docs/architecture/neon-vercel.md` describes the initial Neon/Vercel workflow.
+- `docs/setup/external-services.md` explains the external service setup needed for Phase 2.

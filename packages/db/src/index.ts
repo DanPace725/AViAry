@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import type { ProcessingStatus, VideoItem } from '@aviary/shared';
+import type { ProcessingStatus, Transcript, TranscriptChunk, VideoItem, VideoItemDetail } from '@aviary/shared';
 
 export function getSql(databaseUrl = process.env.DATABASE_URL) {
   if (!databaseUrl) {
@@ -58,6 +58,24 @@ type ProcessingJobRow = {
   title: string;
 };
 
+type TranscriptRow = {
+  id: string;
+  video_id: string;
+  raw_text: string;
+  language: string | null;
+  duration_seconds: number | null;
+  created_at: Date | string;
+};
+
+type TranscriptChunkRow = {
+  id: string;
+  chunk_index: number;
+  start_time_seconds: number | null;
+  end_time_seconds: number | null;
+  text: string;
+  token_count: number | null;
+};
+
 function toVideoItem(row: VideoItemRow): VideoItem {
   return {
     id: row.id,
@@ -69,6 +87,30 @@ function toVideoItem(row: VideoItemRow): VideoItem {
     status: row.status,
     summary: row.summary ?? undefined,
     tags: [],
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString()
+  };
+}
+
+function toTranscriptChunk(row: TranscriptChunkRow): TranscriptChunk {
+  return {
+    id: row.id,
+    chunkIndex: row.chunk_index,
+    startTimeSeconds: row.start_time_seconds ?? undefined,
+    endTimeSeconds: row.end_time_seconds ?? undefined,
+    text: row.text,
+    tokenCount: row.token_count ?? undefined
+  };
+}
+
+function toTranscript(row: TranscriptRow, chunks: TranscriptChunk[]): Transcript {
+  return {
+    id: row.id,
+    videoId: row.video_id,
+    rawText: row.raw_text,
+    language: row.language ?? undefined,
+    durationSeconds: row.duration_seconds ?? undefined,
+    chunks,
     createdAt:
       row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString()
   };
@@ -99,6 +141,46 @@ export async function listVideoItems(sql: Sql, userId: string) {
   )) as VideoItemRow[];
 
   return rows.map(toVideoItem);
+}
+
+export async function getVideoItemDetail(sql: Sql, userId: string, videoId: string): Promise<VideoItemDetail | null> {
+  const videoRows = (await sql.query(
+    `select id, title, source_url, source_platform, creator, duration_seconds, status, summary, created_at
+     from video_items
+     where user_id = $1 and id = $2
+     limit 1`,
+    [userId, videoId]
+  )) as VideoItemRow[];
+
+  if (!videoRows[0]) {
+    return null;
+  }
+
+  const transcriptRows = (await sql.query(
+    `select id, video_id, raw_text, language, duration_seconds, created_at
+     from transcripts
+     where video_id = $1
+     order by created_at desc
+     limit 1`,
+    [videoId]
+  )) as TranscriptRow[];
+
+  if (!transcriptRows[0]) {
+    return { item: toVideoItem(videoRows[0]) };
+  }
+
+  const chunkRows = (await sql.query(
+    `select id, chunk_index, start_time_seconds, end_time_seconds, text, token_count
+     from transcript_chunks
+     where transcript_id = $1
+     order by chunk_index asc`,
+    [transcriptRows[0].id]
+  )) as TranscriptChunkRow[];
+
+  return {
+    item: toVideoItem(videoRows[0]),
+    transcript: toTranscript(transcriptRows[0], chunkRows.map(toTranscriptChunk))
+  };
 }
 
 export async function createVideoCapture(sql: Sql, input: CreateVideoCaptureInput) {
@@ -134,21 +216,34 @@ export async function createVideoCapture(sql: Sql, input: CreateVideoCaptureInpu
 
 export async function getNextQueuedJob(sql: Sql) {
   const rows = (await sql.query(
-    `select
-       processing_jobs.id,
-       processing_jobs.video_id,
-       processing_jobs.user_id,
-       processing_jobs.status,
-       processing_jobs.attempts,
+    `with next_job as (
+       select id
+       from processing_jobs
+       where status = 'queued'
+       order by created_at asc
+       limit 1
+       for update skip locked
+     ),
+     claimed_job as (
+       update processing_jobs
+       set status = 'processing_audio',
+         started_at = coalesce(started_at, now()),
+         updated_at = now()
+       where id in (select id from next_job)
+       returning id, video_id, user_id, status, attempts
+     )
+     select
+       claimed_job.id,
+       claimed_job.video_id,
+       claimed_job.user_id,
+       claimed_job.status,
+       claimed_job.attempts,
        video_items.original_file_url,
        video_items.original_file_path,
        video_items.mime_type,
        video_items.title
-     from processing_jobs
-     join video_items on video_items.id = processing_jobs.video_id
-     where processing_jobs.status = 'queued'
-     order by processing_jobs.created_at asc
-     limit 1`
+     from claimed_job
+     join video_items on video_items.id = claimed_job.video_id`
   )) as ProcessingJobRow[];
 
   return rows[0] ? toProcessingJob(rows[0]) : null;
@@ -160,7 +255,7 @@ export async function markJobStatus(sql: Sql, jobId: string, status: ProcessingS
      set status = $2,
        error_message = $3,
        attempts = attempts + case when $2 = 'failed' then 1 else 0 end,
-       started_at = case when $2 = 'transcribing' then now() else started_at end,
+       started_at = case when $2 in ('processing_audio', 'transcribing') then coalesce(started_at, now()) else started_at end,
        completed_at = case when $2 in ('ready', 'failed') then now() else completed_at end,
        updated_at = now()
      where id = $1`,
@@ -179,6 +274,50 @@ export async function markVideoStatus(sql: Sql, videoId: string, status: Process
   );
 }
 
+function estimateTokenCount(text: string) {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(wordCount * 1.3));
+}
+
+function splitTranscriptIntoChunks(text: string, maxCharacters = 3000) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const units = paragraphs.length > 0 ? paragraphs : [text.trim()].filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const unit of units) {
+    if (unit.length > maxCharacters) {
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+
+      for (let index = 0; index < unit.length; index += maxCharacters) {
+        chunks.push(unit.slice(index, index + maxCharacters).trim());
+      }
+
+      continue;
+    }
+
+    const next = current ? `${current}\n\n${unit}` : unit;
+    if (next.length > maxCharacters) {
+      chunks.push(current);
+      current = unit;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks.length > 0 ? chunks : [text];
+}
+
 export async function saveTranscript(sql: Sql, videoId: string, text: string, language?: string) {
   const rows = (await sql.query(
     `insert into transcripts (video_id, raw_text, language)
@@ -188,11 +327,15 @@ export async function saveTranscript(sql: Sql, videoId: string, text: string, la
   )) as { id: string }[];
 
   const transcriptId = rows[0]!.id;
-  await sql.query(
-    `insert into transcript_chunks (transcript_id, video_id, chunk_index, text)
-     values ($1, $2, 0, $3)`,
-    [transcriptId, videoId, text]
-  );
+  const chunks = splitTranscriptIntoChunks(text);
+
+  for (const [index, chunkText] of chunks.entries()) {
+    await sql.query(
+      `insert into transcript_chunks (transcript_id, video_id, chunk_index, text, token_count)
+       values ($1, $2, $3, $4, $5)`,
+      [transcriptId, videoId, index, chunkText, estimateTokenCount(chunkText)]
+    );
+  }
 
   return transcriptId;
 }

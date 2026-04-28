@@ -24,6 +24,30 @@ export const videoItemSchema = z.object({
   createdAt: z.string()
 });
 
+export const transcriptChunkSchema = z.object({
+  id: z.string(),
+  chunkIndex: z.number().int().nonnegative(),
+  startTimeSeconds: z.number().int().nonnegative().optional(),
+  endTimeSeconds: z.number().int().nonnegative().optional(),
+  text: z.string(),
+  tokenCount: z.number().int().positive().optional()
+});
+
+export const transcriptSchema = z.object({
+  id: z.string(),
+  videoId: z.string(),
+  rawText: z.string(),
+  language: z.string().optional(),
+  durationSeconds: z.number().int().positive().optional(),
+  chunks: z.array(transcriptChunkSchema),
+  createdAt: z.string()
+});
+
+export const videoItemDetailSchema = z.object({
+  item: videoItemSchema,
+  transcript: transcriptSchema.optional()
+});
+
 export const createVideoItemSchema = z.object({
   sourceUrl: z.string().url().optional(),
   title: z.string().min(1).max(160).optional(),
@@ -32,6 +56,9 @@ export const createVideoItemSchema = z.object({
 
 export type ProcessingStatus = (typeof processingStatuses)[number];
 export type VideoItem = z.infer<typeof videoItemSchema>;
+export type TranscriptChunk = z.infer<typeof transcriptChunkSchema>;
+export type Transcript = z.infer<typeof transcriptSchema>;
+export type VideoItemDetail = z.infer<typeof videoItemDetailSchema>;
 export type CreateVideoItemInput = z.infer<typeof createVideoItemSchema>;
 
 export const sampleVideoItems: VideoItem[] = [
