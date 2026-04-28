@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@aviary/shared": "0.1.0",
+    "@vercel/blob": "^2.3.3",
     "@vitejs/plugin-react": "^5.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

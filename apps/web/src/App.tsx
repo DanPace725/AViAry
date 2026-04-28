@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { sampleVideoItems, type ProcessingStatus, type VideoItem, type VideoItemDetail } from '@aviary/shared';
+import { upload } from '@vercel/blob/client';
 
 const apiBaseUrl =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:3001' : '/api');
+const maxUploadSizeBytes = Number(import.meta.env.VITE_MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
 
 const statusLabels: Record<ProcessingStatus, string> = {
   queued: 'Queued',
@@ -43,6 +45,17 @@ function formatDuration(seconds?: number) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function createUploadPath(filename: string) {
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase();
+  const id = crypto.randomUUID();
+  return `uploads/${id}-${safeFilename}`;
+}
+
+function formatFileSize(bytes: number) {
+  const megabytes = bytes / (1024 * 1024);
+  return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`;
 }
 
 function VideoCard({
@@ -144,6 +157,7 @@ function App() {
   const [sourceUrl, setSourceUrl] = useState('');
   const [message, setMessage] = useState('Paste a link or upload media to create a queued item.');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>();
   const hasConfiguredApi = useMemo(() => apiBaseUrl.replace(/\/$/, ''), []);
 
   async function refreshItems() {
@@ -236,13 +250,40 @@ function App() {
     }
 
     setIsSubmitting(true);
-    const formData = new FormData();
-    formData.append('file', file);
+    setUploadProgress(0);
 
     try {
-      const response = await fetch(`${hasConfiguredApi}/video-items/upload`, {
+      if (file.size > maxUploadSizeBytes) {
+        throw new Error(`Upload is too large. Maximum size is ${formatFileSize(maxUploadSizeBytes)}.`);
+      }
+
+      const blob = await upload(createUploadPath(file.name), file, {
+        access: 'private',
+        contentType: file.type,
+        handleUploadUrl: `${hasConfiguredApi}/video-items/upload`,
+        multipart: true,
+        clientPayload: JSON.stringify({
+          filename: file.name,
+          fileSizeBytes: file.size,
+          mimeType: file.type
+        }),
+        onUploadProgress: ({ percentage }) => {
+          setUploadProgress(percentage);
+          setMessage(`Uploading ${file.name}: ${Math.round(percentage)}%`);
+        }
+      });
+
+      const response = await fetch(`${hasConfiguredApi}/video-items/upload-complete`, {
         method: 'POST',
-        body: formData
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          blob,
+          filename: file.name,
+          fileSizeBytes: file.size,
+          mimeType: file.type
+        })
       });
 
       if (!response.ok) {
@@ -257,6 +298,7 @@ function App() {
       setMessage(error instanceof Error ? error.message : 'Unable to upload media.');
     } finally {
       event.target.value = '';
+      setUploadProgress(undefined);
       setIsSubmitting(false);
     }
   }
@@ -298,6 +340,11 @@ function App() {
           <p className="capture-message" role="status">
             {message}
           </p>
+          {uploadProgress !== undefined ? (
+            <div className="progress-bar" aria-label="Upload progress">
+              <span style={{ width: `${uploadProgress}%` }} />
+            </div>
+          ) : null}
         </form>
       </section>
 

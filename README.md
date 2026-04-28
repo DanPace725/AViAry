@@ -71,13 +71,14 @@ Phase 2 uses:
 
 - `DATABASE_URL` for Neon Postgres.
 - `BLOB_READ_WRITE_TOKEN` for Vercel Blob uploads.
+- `MAX_UPLOAD_SIZE_BYTES` and `VITE_MAX_UPLOAD_SIZE_BYTES` for large client-upload limits.
 - `OPENAI_API_KEY` for hosted transcription.
 - `VITE_API_URL` for the PWA to call the API during local development.
 - `ffmpeg` on the worker PATH for extracting audio from uploaded video files.
 
 In production, the web app defaults to same-origin `/api` Vercel Functions. In local development, it defaults to `http://127.0.0.1:3001` unless `VITE_API_URL` is set.
 
-The first worker pass processes one queued upload at a time. URL-only captures are saved to the library, but transcription requires uploaded media until platform-specific download adapters exist. Once the worker finishes, select the capture in the web app to inspect the stored transcript chunks.
+Media uploads use Vercel Blob client uploads with multipart enabled, then AVIARY records the completed blob in Neon. The first worker pass processes one queued upload at a time. URL-only captures are saved to the library, but transcription requires uploaded media until platform-specific download adapters exist. Once the worker finishes, select the capture in the web app to inspect the stored transcript chunks.
 
 See `docs/setup/external-services.md` for Neon, Vercel Blob, OpenAI, and `ffmpeg` setup instructions.
 

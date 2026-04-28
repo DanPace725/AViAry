@@ -24,6 +24,8 @@ The API, worker, and migration script load `.env.local` first, then `.env`. The 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require"
 OPENAI_API_KEY="sk-..."
 BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+MAX_UPLOAD_SIZE_BYTES="524288000"
+VITE_MAX_UPLOAD_SIZE_BYTES="524288000"
 OPENAI_TRANSCRIPTION_MODEL="gpt-4o-mini-transcribe"
 WEB_ORIGIN="http://localhost:5173"
 VITE_API_URL="http://127.0.0.1:3001"
@@ -34,6 +36,8 @@ DEV_USER_ID="dev-user"
 Do not put comments on the same line as quoted values.
 
 For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
+
+`MAX_UPLOAD_SIZE_BYTES` controls the server-side Blob client upload token limit. `VITE_MAX_UPLOAD_SIZE_BYTES` keeps the browser validation message in sync.
 
 ## Neon
 
@@ -74,7 +78,7 @@ https://YOUR_DEPLOYMENT_URL/api/health
 
 ## Vercel Blob
 
-`BLOB_READ_WRITE_TOKEN` is a Vercel Blob store token. AVIARY needs it because uploads go from the API to Vercel Blob before the worker downloads and transcribes them.
+`BLOB_READ_WRITE_TOKEN` is a Vercel Blob store token. AVIARY needs it because uploads go directly from the browser to Vercel Blob, then the API records the completed blob in Neon before the worker downloads and transcribes it.
 
 1. In Vercel, create or open a project.
 2. Go to Storage.
@@ -86,6 +90,12 @@ https://YOUR_DEPLOYMENT_URL/api/health
 Check `http://127.0.0.1:3001/health` again. `blobConfigured` should be `true`.
 
 On Vercel, check `https://YOUR_DEPLOYMENT_URL/api/health`. `blobConfigured` should be `true`.
+
+The upload flow uses:
+
+- `POST /api/video-items/upload` to generate a constrained client upload token.
+- Browser multipart upload directly to Vercel Blob.
+- `POST /api/video-items/upload-complete` to create the Neon `video_items` and `processing_jobs` rows.
 
 If uploads return:
 
@@ -159,6 +169,8 @@ For a deployed Vercel test:
 5. Add environment variables in Vercel:
    - `DATABASE_URL`
    - `BLOB_READ_WRITE_TOKEN`
+   - `MAX_UPLOAD_SIZE_BYTES`
+   - `VITE_MAX_UPLOAD_SIZE_BYTES`
    - `OPENAI_API_KEY`
    - `OPENAI_TRANSCRIPTION_MODEL`
    - `DEV_USER_ID`

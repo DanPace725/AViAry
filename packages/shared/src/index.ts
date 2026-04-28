@@ -54,12 +54,27 @@ export const createVideoItemSchema = z.object({
   notes: z.string().max(2000).optional()
 });
 
+export const uploadedBlobSchema = z.object({
+  url: z.string().url(),
+  downloadUrl: z.string().url().optional(),
+  pathname: z.string().min(1),
+  contentType: z.string().optional()
+});
+
+export const completeVideoUploadSchema = z.object({
+  blob: uploadedBlobSchema,
+  filename: z.string().min(1).max(260),
+  fileSizeBytes: z.number().int().nonnegative(),
+  mimeType: z.string().optional()
+});
+
 export type ProcessingStatus = (typeof processingStatuses)[number];
 export type VideoItem = z.infer<typeof videoItemSchema>;
 export type TranscriptChunk = z.infer<typeof transcriptChunkSchema>;
 export type Transcript = z.infer<typeof transcriptSchema>;
 export type VideoItemDetail = z.infer<typeof videoItemDetailSchema>;
 export type CreateVideoItemInput = z.infer<typeof createVideoItemSchema>;
+export type CompleteVideoUploadInput = z.infer<typeof completeVideoUploadSchema>;
 
 export const sampleVideoItems: VideoItem[] = [
   {

@@ -1,9 +1,9 @@
 import { createVideoCapture, getSql, getVideoItemDetail, listVideoItems } from '@aviary/db';
-import { createVideoItemSchema, sampleVideoItems } from '@aviary/shared';
-import { put } from '@vercel/blob';
-import { randomUUID } from 'node:crypto';
+import { completeVideoUploadSchema, createVideoItemSchema, sampleVideoItems } from '@aviary/shared';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 
 const devUserId = process.env.DEV_USER_ID ?? 'dev-user';
+const maxUploadSizeBytes = Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
 
 export function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -25,11 +25,6 @@ function requireDatabase() {
   }
 
   return sql;
-}
-
-function createBlobPath(filename: string) {
-  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase();
-  return `uploads/${devUserId}/${randomUUID()}-${safeFilename}`;
 }
 
 export function getHealth() {
@@ -94,35 +89,54 @@ export async function getVideoDetail(videoId: string) {
   return json({ detail, source: 'database' });
 }
 
-export async function uploadVideoItem(request: Request) {
+export async function createVideoUploadToken(request: Request) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return json({ message: 'BLOB_READ_WRITE_TOKEN is required for uploads.' }, 503);
   }
 
-  const formData = await request.formData();
-  const uploadedFile = formData.get('file');
+  const body = (await request.json()) as HandleUploadBody;
+  const response = await handleUpload({
+    body,
+    request,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+    onBeforeGenerateToken: async (pathname, clientPayload) => {
+      if (!pathname.startsWith('uploads/')) {
+        throw new Error('Upload path is not allowed.');
+      }
 
-  if (!(uploadedFile instanceof File)) {
-    return json({ message: 'Upload a video or audio file with multipart field "file".' }, 400);
+      return {
+        allowedContentTypes: ['audio/*', 'video/*'],
+        maximumSizeInBytes: maxUploadSizeBytes,
+        tokenPayload: clientPayload,
+        addRandomSuffix: false
+      };
+    }
+  });
+
+  return json(response);
+}
+
+export async function completeVideoUpload(request: Request) {
+  const parsed = completeVideoUploadSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return json(
+      {
+        message: 'Invalid completed upload payload.',
+        issues: parsed.error.issues
+      },
+      400
+    );
   }
 
   const sql = requireDatabase();
-  const buffer = Buffer.from(await uploadedFile.arrayBuffer());
-  const blob = await put(createBlobPath(uploadedFile.name), buffer, {
-    access: 'private',
-    addRandomSuffix: false,
-    contentType: uploadedFile.type,
-    token: process.env.BLOB_READ_WRITE_TOKEN
-  });
-
   const video = await createVideoCapture(sql, {
     userId: devUserId,
-    title: uploadedFile.name,
-    originalFileUrl: blob.url,
-    originalFilePath: blob.pathname,
-    fileSizeBytes: buffer.byteLength,
-    mimeType: uploadedFile.type
+    title: parsed.data.filename,
+    originalFileUrl: parsed.data.blob.url,
+    originalFilePath: parsed.data.blob.pathname,
+    fileSizeBytes: parsed.data.fileSizeBytes,
+    mimeType: parsed.data.mimeType ?? parsed.data.blob.contentType
   });
 
-  return json({ item: video, blob: { pathname: blob.pathname } }, 201);
+  return json({ item: video, blob: { pathname: parsed.data.blob.pathname } }, 201);
 }

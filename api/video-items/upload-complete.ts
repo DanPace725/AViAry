@@ -1,8 +1,4 @@
-import { createVideoUploadToken, json } from '../_shared.js';
-
-export const config = {
-  maxDuration: 60
-};
+import { completeVideoUpload, json } from '../_shared.js';
 
 export default {
   fetch(request: Request) {
@@ -10,6 +6,6 @@ export default {
       return json({ message: 'Method not allowed.' }, 405);
     }
 
-    return createVideoUploadToken(request);
+    return completeVideoUpload(request);
   }
 };
