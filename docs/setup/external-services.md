@@ -7,6 +7,13 @@ AVIARY Phase 2 needs four things outside the repo:
 - OpenAI for hosted transcription.
 - `ffmpeg` on the worker machine for extracting audio from video uploads.
 
+The Vercel deployment now serves two pieces from the same project:
+
+- `apps/web` builds the Vite PWA.
+- root `api/` contains Vercel Functions for health checks, captures, library reads, and uploads.
+
+That means the deployed web app should call same-origin API routes like `/api/health` and `/api/video-items`.
+
 ## Local Environment File
 
 Create `C:\Users\nscha\Coding\aviary\AViAry\.env.local` from `.env.example`.
@@ -25,6 +32,8 @@ DEV_USER_ID="dev-user"
 ```
 
 Do not put comments on the same line as quoted values.
+
+For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
 
 ## Neon
 
@@ -55,6 +64,14 @@ http://127.0.0.1:3001/health
 
 If the app still shows sample items, the API probably did not load `DATABASE_URL`, the API was not restarted after editing `.env.local`, or the web app is pointed at the wrong API URL.
 
+On Vercel, check:
+
+```text
+https://YOUR_DEPLOYMENT_URL/api/health
+```
+
+`databaseConfigured` should be `true`. If it is `false`, add `DATABASE_URL` to the Vercel project's Environment Variables and redeploy.
+
 ## Vercel Blob
 
 `BLOB_READ_WRITE_TOKEN` is a Vercel Blob store token. AVIARY needs it because uploads go from the API to Vercel Blob before the worker downloads and transcribes them.
@@ -68,6 +85,8 @@ If the app still shows sample items, the API probably did not load `DATABASE_URL
 
 Check `http://127.0.0.1:3001/health` again. `blobConfigured` should be `true`.
 
+On Vercel, check `https://YOUR_DEPLOYMENT_URL/api/health`. `blobConfigured` should be `true`.
+
 If uploads return:
 
 ```json
@@ -75,6 +94,8 @@ If uploads return:
 ```
 
 the API process does not see that environment variable. Confirm it is in `.env.local`, confirm the name is exactly `BLOB_READ_WRITE_TOKEN`, and restart `npm run dev:api`.
+
+If this happens on Vercel, the Vercel Function does not see `BLOB_READ_WRITE_TOKEN`. Confirm it is set for the correct Vercel environment, usually both Preview and Production while testing, then redeploy.
 
 ## OpenAI
 
@@ -126,3 +147,23 @@ Then:
 3. Run the worker once.
 4. Select the capture in the library.
 5. Confirm transcript chunks appear in the transcript detail panel.
+
+## Phase 2 Deployed Loop
+
+For a deployed Vercel test:
+
+1. In Vercel Project Settings, set Framework Preset to `Vite`.
+2. Keep Root Directory as the repo root.
+3. Use build command `npm run build --workspace @aviary/web`.
+4. Use output directory `apps/web/dist`.
+5. Add environment variables in Vercel:
+   - `DATABASE_URL`
+   - `BLOB_READ_WRITE_TOKEN`
+   - `OPENAI_API_KEY`
+   - `OPENAI_TRANSCRIPTION_MODEL`
+   - `DEV_USER_ID`
+6. Do not set `VITE_API_URL` unless using a separately deployed API host.
+7. Redeploy.
+8. Visit `/api/health` on the deployment and confirm both `databaseConfigured` and `blobConfigured` are `true`.
+
+Uploads create queued jobs in Neon. The current worker still runs separately, so transcription will not complete until the worker runs with the same `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`, and `ffmpeg` available.

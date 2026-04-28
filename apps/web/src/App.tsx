@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { sampleVideoItems, type ProcessingStatus, type VideoItem, type VideoItemDetail } from '@aviary/shared';
 
-const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001';
+const apiBaseUrl =
+  import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:3001' : '/api');
 
 const statusLabels: Record<ProcessingStatus, string> = {
   queued: 'Queued',

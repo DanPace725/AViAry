@@ -12,6 +12,7 @@ Save video -> transcript -> summary/tags -> search/chat -> cited export
 
 - Frontend: Vite + React + TypeScript PWA in `apps/web`
 - API: Node + TypeScript Fastify scaffold in `apps/api`
+- Deployed API: Vercel Functions in root `api/`
 - Worker: Node + TypeScript processing scaffold in `apps/worker`
 - Shared contracts: `packages/shared`
 - Database client/schema starter: `packages/db`
@@ -73,6 +74,8 @@ Phase 2 uses:
 - `OPENAI_API_KEY` for hosted transcription.
 - `VITE_API_URL` for the PWA to call the API during local development.
 - `ffmpeg` on the worker PATH for extracting audio from uploaded video files.
+
+In production, the web app defaults to same-origin `/api` Vercel Functions. In local development, it defaults to `http://127.0.0.1:3001` unless `VITE_API_URL` is set.
 
 The first worker pass processes one queued upload at a time. URL-only captures are saved to the library, but transcription requires uploaded media until platform-specific download adapters exist. Once the worker finishes, select the capture in the web app to inspect the stored transcript chunks.
 

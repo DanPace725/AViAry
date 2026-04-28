@@ -7,12 +7,17 @@
     "apps/*",
     "packages/*"
   ],
+  "dependencies": {
+    "@aviary/db": "0.1.0",
+    "@aviary/shared": "0.1.0",
+    "@vercel/blob": "^2.3.3"
+  },
   "scripts": {
     "dev": "npm run dev --workspace @aviary/web",
     "dev:api": "npm run dev --workspace @aviary/api",
     "dev:worker": "npm run dev --workspace @aviary/worker",
     "build": "npm run build --workspace @aviary/shared && npm run build --workspace @aviary/db && npm run build --workspace @aviary/api && npm run build --workspace @aviary/worker && npm run build --workspace @aviary/web",
-    "typecheck": "npm run typecheck --workspace @aviary/shared && npm run typecheck --workspace @aviary/db && npm run typecheck --workspace @aviary/api && npm run typecheck --workspace @aviary/worker && npm run typecheck --workspace @aviary/web",
+    "typecheck": "tsc -p api/tsconfig.json --noEmit && npm run typecheck --workspace @aviary/shared && npm run typecheck --workspace @aviary/db && npm run typecheck --workspace @aviary/api && npm run typecheck --workspace @aviary/worker && npm run typecheck --workspace @aviary/web",
     "lint": "npm run lint --workspaces --if-present"
   },
   "engines": {
