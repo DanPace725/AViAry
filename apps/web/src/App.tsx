@@ -6,6 +6,7 @@ import { upload } from '@vercel/blob/client';
 const apiBaseUrl =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:3001' : '/api');
 const maxUploadSizeBytes = Number(import.meta.env.VITE_MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
+const uploadKeyStorageKey = 'aviary-upload-key';
 
 const statusLabels: Record<ProcessingStatus, string> = {
   queued: 'Queued',
@@ -155,6 +156,7 @@ function App() {
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailMessage, setDetailMessage] = useState('Select a capture to inspect its stored transcript.');
   const [sourceUrl, setSourceUrl] = useState('');
+  const [uploadKey, setUploadKey] = useState(() => localStorage.getItem(uploadKeyStorageKey) ?? '');
   const [message, setMessage] = useState('Paste a link or upload media to create a queued item.');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>();
@@ -219,10 +221,16 @@ function App() {
     setIsSubmitting(true);
 
     try {
+      if (!uploadKey) {
+        throw new Error('Enter the alpha upload key before saving captures.');
+      }
+
+      localStorage.setItem(uploadKeyStorageKey, uploadKey);
       const response = await fetch(`${hasConfiguredApi}/video-items`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-aviary-upload-key': uploadKey
         },
         body: JSON.stringify({ sourceUrl })
       });
@@ -253,14 +261,22 @@ function App() {
     setUploadProgress(0);
 
     try {
+      if (!uploadKey) {
+        throw new Error('Enter the alpha upload key before uploading media.');
+      }
+
       if (file.size > maxUploadSizeBytes) {
         throw new Error(`Upload is too large. Maximum size is ${formatFileSize(maxUploadSizeBytes)}.`);
       }
 
+      localStorage.setItem(uploadKeyStorageKey, uploadKey);
       const blob = await upload(createUploadPath(file.name), file, {
         access: 'private',
         contentType: file.type,
         handleUploadUrl: `${hasConfiguredApi}/video-items/upload`,
+        headers: {
+          'x-aviary-upload-key': uploadKey
+        },
         multipart: true,
         clientPayload: JSON.stringify({
           filename: file.name,
@@ -276,7 +292,8 @@ function App() {
       const response = await fetch(`${hasConfiguredApi}/video-items/upload-complete`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-aviary-upload-key': uploadKey
         },
         body: JSON.stringify({
           blob,
@@ -336,6 +353,15 @@ function App() {
             accept="audio/*,video/*"
             onChange={handleFileUpload}
             disabled={isSubmitting}
+          />
+          <label htmlFor="upload-key">Alpha upload key</label>
+          <input
+            id="upload-key"
+            type="password"
+            value={uploadKey}
+            onChange={(event) => setUploadKey(event.target.value)}
+            placeholder="Required for uploads"
+            autoComplete="off"
           />
           <p className="capture-message" role="status">
             {message}

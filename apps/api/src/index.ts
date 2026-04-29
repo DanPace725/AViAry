@@ -12,6 +12,7 @@ const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '127.0.0.1';
 const devUserId = process.env.DEV_USER_ID ?? 'dev-user';
 const maxUploadSizeBytes = Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
+const uploadAuthHeader = 'x-aviary-upload-key';
 
 const app = Fastify({
   logger: true
@@ -39,6 +40,19 @@ function requireDatabase() {
   }
 
   return sql;
+}
+
+function requireUploadAuthorization(request: { headers: Record<string, string | string[] | undefined> }) {
+  const expectedKey = process.env.AVIARY_UPLOAD_KEY;
+  if (!expectedKey) {
+    return { statusCode: 503, body: { message: 'AVIARY_UPLOAD_KEY is required before uploads can be authorized.' } };
+  }
+
+  if (request.headers[uploadAuthHeader] !== expectedKey) {
+    return { statusCode: 401, body: { message: 'Upload is not authorized.' } };
+  }
+
+  return null;
 }
 
 app.get('/health', async () => ({
@@ -80,6 +94,11 @@ app.get('/video-items/:id', async (request, reply) => {
 });
 
 app.post('/video-items', async (request, reply) => {
+  const authorizationError = requireUploadAuthorization(request);
+  if (authorizationError) {
+    return reply.code(authorizationError.statusCode).send(authorizationError.body);
+  }
+
   const parsed = createVideoItemSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({
@@ -104,28 +123,44 @@ app.post('/video-items/upload', async (request, reply) => {
     return reply.code(503).send({ message: 'BLOB_READ_WRITE_TOKEN is required for uploads.' });
   }
 
-  const response = await handleUpload({
-    body: request.body as HandleUploadBody,
-    request: request.raw,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-    onBeforeGenerateToken: async (pathname, clientPayload) => {
-      if (!pathname.startsWith('uploads/')) {
-        throw new Error('Upload path is not allowed.');
+  try {
+    const response = await handleUpload({
+      body: request.body as HandleUploadBody,
+      request: request.raw,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      onBeforeGenerateToken: async (pathname, clientPayload) => {
+        const authorizationError = requireUploadAuthorization(request);
+        if (authorizationError) {
+          throw new Error('Upload is not authorized.');
+        }
+
+        if (!pathname.startsWith('uploads/')) {
+          throw new Error('Upload path is not allowed.');
+        }
+
+        return {
+          allowedContentTypes: ['audio/*', 'video/*'],
+          maximumSizeInBytes: maxUploadSizeBytes,
+          tokenPayload: clientPayload,
+          addRandomSuffix: false
+        };
       }
+    });
 
-      return {
-        allowedContentTypes: ['audio/*', 'video/*'],
-        maximumSizeInBytes: maxUploadSizeBytes,
-        tokenPayload: clientPayload,
-        addRandomSuffix: false
-      };
-    }
-  });
-
-  return response;
+    return response;
+  } catch (error) {
+    return reply
+      .code(400)
+      .send({ message: error instanceof Error ? error.message : 'Unable to create upload token.' });
+  }
 });
 
 app.post('/video-items/upload-complete', async (request, reply) => {
+  const authorizationError = requireUploadAuthorization(request);
+  if (authorizationError) {
+    return reply.code(authorizationError.statusCode).send(authorizationError.body);
+  }
+
   const parsed = completeVideoUploadSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({

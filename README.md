@@ -71,6 +71,7 @@ Phase 2 uses:
 
 - `DATABASE_URL` for Neon Postgres.
 - `BLOB_READ_WRITE_TOKEN` for Vercel Blob uploads.
+- `AVIARY_UPLOAD_KEY` as a temporary alpha gate for capture/upload writes.
 - `MAX_UPLOAD_SIZE_BYTES` and `VITE_MAX_UPLOAD_SIZE_BYTES` for large client-upload limits.
 - `OPENAI_API_KEY` for hosted transcription.
 - `VITE_API_URL` for the PWA to call the API during local development.

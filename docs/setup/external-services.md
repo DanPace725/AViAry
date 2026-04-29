@@ -24,6 +24,7 @@ The API, worker, and migration script load `.env.local` first, then `.env`. The 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require"
 OPENAI_API_KEY="sk-..."
 BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+AVIARY_UPLOAD_KEY="choose-a-private-alpha-key"
 MAX_UPLOAD_SIZE_BYTES="524288000"
 VITE_MAX_UPLOAD_SIZE_BYTES="524288000"
 OPENAI_TRANSCRIPTION_MODEL="gpt-4o-mini-transcribe"
@@ -35,9 +36,11 @@ DEV_USER_ID="dev-user"
 
 Do not put comments on the same line as quoted values.
 
-For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
+For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `AVIARY_UPLOAD_KEY`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
 
 `MAX_UPLOAD_SIZE_BYTES` controls the server-side Blob client upload token limit. `VITE_MAX_UPLOAD_SIZE_BYTES` keeps the browser validation message in sync.
+
+`AVIARY_UPLOAD_KEY` is a temporary alpha gate until proper user auth exists. The web app asks testers to enter this key before it will create captures or request Blob upload tokens. Do not use this as the long-term auth model.
 
 ## Neon
 
@@ -96,6 +99,8 @@ The upload flow uses:
 - `POST /api/video-items/upload` to generate a constrained client upload token.
 - Browser multipart upload directly to Vercel Blob.
 - `POST /api/video-items/upload-complete` to create the Neon `video_items` and `processing_jobs` rows.
+
+Both write routes require the `x-aviary-upload-key` header to match `AVIARY_UPLOAD_KEY`.
 
 If uploads return:
 
@@ -169,6 +174,7 @@ For a deployed Vercel test:
 5. Add environment variables in Vercel:
    - `DATABASE_URL`
    - `BLOB_READ_WRITE_TOKEN`
+   - `AVIARY_UPLOAD_KEY`
    - `MAX_UPLOAD_SIZE_BYTES`
    - `VITE_MAX_UPLOAD_SIZE_BYTES`
    - `OPENAI_API_KEY`
