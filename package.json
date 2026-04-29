@@ -10,7 +10,9 @@
   "dependencies": {
     "@aviary/db": "0.1.0",
     "@aviary/shared": "0.1.0",
-    "@vercel/blob": "^2.3.3"
+    "@neondatabase/neon-js": "^0.3.0-beta",
+    "@vercel/blob": "^2.3.3",
+    "jose": "^6.2.3"
   },
   "scripts": {
     "dev": "npm run dev --workspace @aviary/web",

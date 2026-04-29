@@ -1,7 +1,7 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
+import { getRequestUserId } from '../_auth.js';
 
 const maxUploadSizeBytes = Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
-const uploadAuthHeader = 'x-aviary-upload-key';
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -10,20 +10,6 @@ function json(data: unknown, status = 200) {
       'Content-Type': 'application/json'
     }
   });
-}
-
-function requireUploadAuthorization(request: Request) {
-  const expectedKey = process.env.AVIARY_UPLOAD_KEY;
-  if (!expectedKey) {
-    return json({ message: 'AVIARY_UPLOAD_KEY is required before uploads can be authorized.' }, 503);
-  }
-
-  const providedKey = request.headers.get(uploadAuthHeader);
-  if (providedKey !== expectedKey) {
-    return json({ message: 'Upload is not authorized.' }, 401);
-  }
-
-  return null;
 }
 
 export const config = {
@@ -38,6 +24,7 @@ export default {
         service: 'aviary-upload-token',
         blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
         uploadKeyConfigured: Boolean(process.env.AVIARY_UPLOAD_KEY),
+        authConfigured: Boolean(process.env.NEON_AUTH_BASE_URL),
         maxUploadSizeBytes
       });
     }
@@ -50,6 +37,11 @@ export default {
       return json({ message: 'BLOB_READ_WRITE_TOKEN is required for uploads.' }, 503);
     }
 
+    const auth = await getRequestUserId(request);
+    if ('response' in auth) {
+      return auth.response;
+    }
+
     try {
       const body = (await request.json()) as HandleUploadBody;
       const response = await handleUpload({
@@ -57,11 +49,6 @@ export default {
         request,
         token: process.env.BLOB_READ_WRITE_TOKEN,
         onBeforeGenerateToken: async (pathname, clientPayload) => {
-          const authorizationError = requireUploadAuthorization(request);
-          if (authorizationError) {
-            throw new Error('Upload is not authorized.');
-          }
-
           if (!pathname.startsWith('uploads/')) {
             throw new Error('Upload path is not allowed.');
           }
@@ -69,7 +56,7 @@ export default {
           return {
             allowedContentTypes: ['audio/*', 'video/*'],
             maximumSizeInBytes: maxUploadSizeBytes,
-            tokenPayload: clientPayload,
+            tokenPayload: clientPayload ?? auth.userId,
             addRandomSuffix: false
           };
         }

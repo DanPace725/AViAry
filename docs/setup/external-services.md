@@ -3,6 +3,7 @@
 AVIARY Phase 2 needs four things outside the repo:
 
 - Neon Postgres for video metadata, jobs, transcripts, and transcript chunks.
+- Neon Auth for user sign in/sign up and request authorization.
 - Vercel Blob for uploaded media files.
 - OpenAI for hosted transcription.
 - `ffmpeg` on the worker machine for extracting audio from video uploads.
@@ -25,6 +26,8 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require"
 OPENAI_API_KEY="sk-..."
 BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 AVIARY_UPLOAD_KEY="choose-a-private-alpha-key"
+NEON_AUTH_BASE_URL="https://ep-...neonauth....neon.tech/neondb/auth"
+VITE_NEON_AUTH_URL="https://ep-...neonauth....neon.tech/neondb/auth"
 MAX_UPLOAD_SIZE_BYTES="524288000"
 VITE_MAX_UPLOAD_SIZE_BYTES="524288000"
 OPENAI_TRANSCRIPTION_MODEL="gpt-4o-mini-transcribe"
@@ -36,11 +39,11 @@ DEV_USER_ID="dev-user"
 
 Do not put comments on the same line as quoted values.
 
-For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `AVIARY_UPLOAD_KEY`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
+For Vercel production, set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `NEON_AUTH_BASE_URL`, `VITE_NEON_AUTH_URL`, `OPENAI_API_KEY`, `OPENAI_TRANSCRIPTION_MODEL`, and `DEV_USER_ID` in the Vercel Project Environment Variables. You usually do not need to set `VITE_API_URL` in Vercel because production defaults to same-origin `/api`.
 
 `MAX_UPLOAD_SIZE_BYTES` controls the server-side Blob client upload token limit. `VITE_MAX_UPLOAD_SIZE_BYTES` keeps the browser validation message in sync.
 
-`AVIARY_UPLOAD_KEY` is a temporary alpha gate until proper user auth exists. The web app asks testers to enter this key before it will create captures or request Blob upload tokens. Do not use this as the long-term auth model.
+`AVIARY_UPLOAD_KEY` is now only a fallback for local/dev environments where `NEON_AUTH_BASE_URL` is not configured. Production should use Neon Auth.
 
 ## Neon
 
@@ -79,6 +82,28 @@ https://YOUR_DEPLOYMENT_URL/api/health
 
 `databaseConfigured` should be `true`. If it is `false`, add `DATABASE_URL` to the Vercel project's Environment Variables and redeploy.
 
+## Neon Auth
+
+AVIARY uses Neon Auth JWTs to authorize library reads, captures, and Blob client upload token creation.
+
+The Neon MCP reported that project `lively-feather-56042696` already has a `neon_auth` schema, so the Auth provisioning tool cannot safely run again unless that schema is dropped. Do not drop it just for this app if you can see Auth enabled in the Neon Console.
+
+1. Open the Neon Console for the project.
+2. Go to Auth for the branch you are using.
+3. Copy the branch Auth URL. It should look like `https://ep-...neonauth....neon.tech/neondb/auth`.
+4. Set both values to that exact URL:
+   - `NEON_AUTH_BASE_URL`
+   - `VITE_NEON_AUTH_URL`
+5. In Neon Auth domain/settings, allow the app origins you use:
+   - `http://localhost:5173`
+   - your Vercel production URL
+   - any Vercel preview URLs you test with
+6. Restart the local API and web dev server, or redeploy Vercel after setting the variables.
+
+Check `/api/health`. `authConfigured` should be `true` when `NEON_AUTH_BASE_URL` is visible to the API.
+
+When `VITE_NEON_AUTH_URL` is present, the web app shows sign in/sign up controls and sends a Bearer token to the API. When it is absent, the app falls back to `AVIARY_UPLOAD_KEY`.
+
 ## Vercel Blob
 
 `BLOB_READ_WRITE_TOKEN` is a Vercel Blob store token. AVIARY needs it because uploads go directly from the browser to Vercel Blob, then the API records the completed blob in Neon before the worker downloads and transcribes it.
@@ -101,6 +126,8 @@ The upload flow uses:
 - `POST /api/video-items/upload-complete` to create the Neon `video_items` and `processing_jobs` rows.
 
 Both write routes require the `x-aviary-upload-key` header to match `AVIARY_UPLOAD_KEY`.
+
+In production with Neon Auth configured, these routes require an `Authorization: Bearer <token>` header instead.
 
 If uploads return:
 
@@ -169,12 +196,13 @@ For a deployed Vercel test:
 
 1. In Vercel Project Settings, set Framework Preset to `Vite`.
 2. Keep Root Directory as the repo root.
-3. Use build command `npm run build --workspace @aviary/web`.
+3. Let Vercel use the repo `vercel.json` build command. If you override it in the dashboard, use `npm run build --workspace @aviary/shared && npm run build --workspace @aviary/db && npm run build --workspace @aviary/web`.
 4. Use output directory `apps/web/dist`.
 5. Add environment variables in Vercel:
    - `DATABASE_URL`
    - `BLOB_READ_WRITE_TOKEN`
-   - `AVIARY_UPLOAD_KEY`
+   - `NEON_AUTH_BASE_URL`
+   - `VITE_NEON_AUTH_URL`
    - `MAX_UPLOAD_SIZE_BYTES`
    - `VITE_MAX_UPLOAD_SIZE_BYTES`
    - `OPENAI_API_KEY`

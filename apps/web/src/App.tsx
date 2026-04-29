@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { sampleVideoItems, type ProcessingStatus, type VideoItem, type VideoItemDetail } from '@aviary/shared';
 import { upload } from '@vercel/blob/client';
+import { authClient } from './auth';
 
 const apiBaseUrl =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:3001' : '/api');
 const maxUploadSizeBytes = Number(import.meta.env.VITE_MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
 const uploadKeyStorageKey = 'aviary-upload-key';
+const isNeonAuthConfigured = Boolean(authClient);
 
 const statusLabels: Record<ProcessingStatus, string> = {
   queued: 'Queued',
@@ -57,6 +59,23 @@ function createUploadPath(filename: string) {
 function formatFileSize(bytes: number) {
   const megabytes = bytes / (1024 * 1024);
   return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`;
+}
+
+type NeonAuthResult = {
+  data?: {
+    token?: string;
+    user?: {
+      email?: string | null;
+      name?: string | null;
+    } | null;
+  } | null;
+  error?: {
+    message?: string;
+  } | null;
+};
+
+function getAuthErrorMessage(result: NeonAuthResult, fallback: string) {
+  return result.error?.message ?? fallback;
 }
 
 function VideoCard({
@@ -157,15 +176,57 @@ function App() {
   const [detailMessage, setDetailMessage] = useState('Select a capture to inspect its stored transcript.');
   const [sourceUrl, setSourceUrl] = useState('');
   const [uploadKey, setUploadKey] = useState(() => localStorage.getItem(uploadKeyStorageKey) ?? '');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [authUserEmail, setAuthUserEmail] = useState<string>();
+  const [isAuthLoading, setIsAuthLoading] = useState(isNeonAuthConfigured);
   const [message, setMessage] = useState('Paste a link or upload media to create a queued item.');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>();
   const hasConfiguredApi = useMemo(() => apiBaseUrl.replace(/\/$/, ''), []);
+  const isCaptureDisabled = isSubmitting || (isNeonAuthConfigured && !authUserEmail);
+
+  async function refreshAuthSession() {
+    if (!authClient) {
+      return;
+    }
+
+    const result = (await authClient.getSession()) as NeonAuthResult;
+    if (result.error) {
+      setAuthUserEmail(undefined);
+      return;
+    }
+
+    setAuthUserEmail(result.data?.user?.email ?? result.data?.user?.name ?? undefined);
+  }
+
+  async function getAuthHeaders(): Promise<Record<string, string>> {
+    if (authClient) {
+      const tokenClient = authClient as unknown as { token: () => Promise<NeonAuthResult> };
+      const result = await tokenClient.token();
+      if (result.error || !result.data?.token) {
+        throw new Error(getAuthErrorMessage(result, 'Sign in before continuing.'));
+      }
+
+      return { Authorization: `Bearer ${result.data.token}` };
+    }
+
+    if (!uploadKey) {
+      throw new Error('Enter the alpha access key before using the API.');
+    }
+
+    localStorage.setItem(uploadKeyStorageKey, uploadKey);
+    return { 'x-aviary-upload-key': uploadKey };
+  }
 
   async function refreshItems() {
-    const response = await fetch(`${hasConfiguredApi}/video-items`);
+    const response = await fetch(`${hasConfiguredApi}/video-items`, {
+      headers: await getAuthHeaders()
+    });
     if (!response.ok) {
-      throw new Error('Unable to load video items.');
+      throw new Error(await response.text());
     }
 
     const data = (await response.json()) as { items: VideoItem[]; source: 'sample' | 'database' };
@@ -181,9 +242,11 @@ function App() {
     setIsDetailLoading(true);
 
     try {
-      const response = await fetch(`${hasConfiguredApi}/video-items/${videoId}`);
+      const response = await fetch(`${hasConfiguredApi}/video-items/${videoId}`, {
+        headers: await getAuthHeaders()
+      });
       if (!response.ok) {
-        throw new Error('Unable to load transcript detail.');
+        throw new Error(await response.text());
       }
 
       const data = (await response.json()) as { detail: VideoItemDetail; source: 'sample' | 'database' };
@@ -204,10 +267,19 @@ function App() {
   }
 
   useEffect(() => {
-    refreshItems().catch((error: unknown) => {
-      const errorMessage = error instanceof Error ? error.message : 'Unable to reach the API.';
-      setMessage(errorMessage);
-    });
+    async function load() {
+      try {
+        await refreshAuthSession();
+        await refreshItems();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unable to reach the API.';
+        setMessage(errorMessage);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    }
+
+    load();
   }, []);
 
   useEffect(() => {
@@ -216,21 +288,70 @@ function App() {
     }
   }, [selectedVideoId]);
 
+  async function handleAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!authClient) {
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      const result =
+        authMode === 'sign-up'
+          ? ((await authClient.signUp.email({
+              email: authEmail,
+              password: authPassword,
+              name: authName || authEmail
+            })) as NeonAuthResult)
+          : ((await authClient.signIn.email({
+              email: authEmail,
+              password: authPassword
+            })) as NeonAuthResult);
+
+      if (result.error) {
+        throw new Error(getAuthErrorMessage(result, 'Unable to authenticate.'));
+      }
+
+      await refreshAuthSession();
+      setAuthPassword('');
+      setMessage(authMode === 'sign-up' ? 'Account created. Loading your library.' : 'Signed in. Loading your library.');
+      await refreshItems();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to authenticate.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handleSignOut() {
+    if (!authClient) {
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      await authClient.signOut();
+      setAuthUserEmail(undefined);
+      setDetail(undefined);
+      setSelectedVideoId(undefined);
+      setItems(sampleVideoItems);
+      setMessage('Signed out.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
   async function handleUrlCapture(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
 
     try {
-      if (!uploadKey) {
-        throw new Error('Enter the alpha upload key before saving captures.');
-      }
-
-      localStorage.setItem(uploadKeyStorageKey, uploadKey);
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(`${hasConfiguredApi}/video-items`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-aviary-upload-key': uploadKey
+          ...authHeaders
         },
         body: JSON.stringify({ sourceUrl })
       });
@@ -261,22 +382,16 @@ function App() {
     setUploadProgress(0);
 
     try {
-      if (!uploadKey) {
-        throw new Error('Enter the alpha upload key before uploading media.');
-      }
-
       if (file.size > maxUploadSizeBytes) {
         throw new Error(`Upload is too large. Maximum size is ${formatFileSize(maxUploadSizeBytes)}.`);
       }
 
-      localStorage.setItem(uploadKeyStorageKey, uploadKey);
+      const authHeaders = await getAuthHeaders();
       const blob = await upload(createUploadPath(file.name), file, {
         access: 'private',
         contentType: file.type,
         handleUploadUrl: `${hasConfiguredApi}/video-items/upload`,
-        headers: {
-          'x-aviary-upload-key': uploadKey
-        },
+        headers: authHeaders,
         multipart: true,
         clientPayload: JSON.stringify({
           filename: file.name,
@@ -293,7 +408,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-aviary-upload-key': uploadKey
+          ...authHeaders
         },
         body: JSON.stringify({
           blob,
@@ -329,6 +444,63 @@ function App() {
           AVIARY is starting as a mobile-first PWA for capturing videos, generating transcripts,
           and building a library you can search, export, and eventually chat with.
         </p>
+        {isNeonAuthConfigured ? (
+          authUserEmail ? (
+            <div className="auth-panel auth-panel--signed-in">
+              <span>Signed in as {authUserEmail}</span>
+              <button type="button" onClick={handleSignOut} disabled={isAuthLoading}>
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <form className="auth-panel" aria-label="Account access" onSubmit={handleAuth}>
+              <div className="auth-panel__mode" role="group" aria-label="Authentication mode">
+                <button
+                  type="button"
+                  className={authMode === 'sign-in' ? 'auth-panel__mode-button--active' : ''}
+                  onClick={() => setAuthMode('sign-in')}
+                >
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  className={authMode === 'sign-up' ? 'auth-panel__mode-button--active' : ''}
+                  onClick={() => setAuthMode('sign-up')}
+                >
+                  Sign up
+                </button>
+              </div>
+              {authMode === 'sign-up' ? (
+                <input
+                  type="text"
+                  value={authName}
+                  onChange={(event) => setAuthName(event.target.value)}
+                  placeholder="Name"
+                  autoComplete="name"
+                />
+              ) : null}
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+                placeholder="Email"
+                autoComplete="email"
+                required
+              />
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                placeholder="Password"
+                autoComplete={authMode === 'sign-up' ? 'new-password' : 'current-password'}
+                required
+              />
+              <button type="submit" disabled={isAuthLoading || !authEmail || !authPassword}>
+                {authMode === 'sign-up' ? 'Create account' : 'Sign in'}
+              </button>
+            </form>
+          )
+        ) : null}
         <form className="capture-panel" aria-label="Capture a video" onSubmit={handleUrlCapture}>
           <label htmlFor="video-source">Paste a video link</label>
           <div className="capture-panel__row">
@@ -339,7 +511,7 @@ function App() {
               onChange={(event) => setSourceUrl(event.target.value)}
               placeholder="https://www.tiktok.com/@creator/video/..."
             />
-            <button type="submit" disabled={isSubmitting || !sourceUrl}>
+            <button type="submit" disabled={isCaptureDisabled || !sourceUrl}>
               Save
             </button>
           </div>
@@ -352,17 +524,21 @@ function App() {
             type="file"
             accept="audio/*,video/*"
             onChange={handleFileUpload}
-            disabled={isSubmitting}
+            disabled={isCaptureDisabled}
           />
-          <label htmlFor="upload-key">Alpha upload key</label>
-          <input
-            id="upload-key"
-            type="password"
-            value={uploadKey}
-            onChange={(event) => setUploadKey(event.target.value)}
-            placeholder="Required for uploads"
-            autoComplete="off"
-          />
+          {!isNeonAuthConfigured ? (
+            <>
+              <label htmlFor="upload-key">Alpha access key</label>
+              <input
+                id="upload-key"
+                type="password"
+                value={uploadKey}
+                onChange={(event) => setUploadKey(event.target.value)}
+                placeholder="Required for API access"
+                autoComplete="off"
+              />
+            </>
+          ) : null}
           <p className="capture-message" role="status">
             {message}
           </p>

@@ -7,7 +7,8 @@ export default {
         ok: true,
         service: 'aviary-upload-complete',
         databaseConfigured: Boolean(process.env.DATABASE_URL),
-        uploadKeyConfigured: Boolean(process.env.AVIARY_UPLOAD_KEY)
+        uploadKeyConfigured: Boolean(process.env.AVIARY_UPLOAD_KEY),
+        authConfigured: Boolean(process.env.NEON_AUTH_BASE_URL)
       });
     }
 

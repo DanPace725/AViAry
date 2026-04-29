@@ -3,7 +3,7 @@ import { createVideoItem, getVideoItems, json } from './_shared.js';
 export default {
   fetch(request: Request) {
     if (request.method === 'GET') {
-      return getVideoItems();
+      return getVideoItems(request);
     }
 
     if (request.method === 'POST') {

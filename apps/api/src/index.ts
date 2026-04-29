@@ -5,14 +5,13 @@ import { completeVideoUploadSchema, createVideoItemSchema, sampleVideoItems } fr
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import Fastify from 'fastify';
 import { config } from 'dotenv';
+import { getRequestUserId } from './auth.js';
 
 config({ path: ['.env.local', '.env'] });
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '127.0.0.1';
-const devUserId = process.env.DEV_USER_ID ?? 'dev-user';
 const maxUploadSizeBytes = Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 500 * 1024 * 1024);
-const uploadAuthHeader = 'x-aviary-upload-key';
 
 const app = Fastify({
   logger: true
@@ -42,37 +41,35 @@ function requireDatabase() {
   return sql;
 }
 
-function requireUploadAuthorization(request: { headers: Record<string, string | string[] | undefined> }) {
-  const expectedKey = process.env.AVIARY_UPLOAD_KEY;
-  if (!expectedKey) {
-    return { statusCode: 503, body: { message: 'AVIARY_UPLOAD_KEY is required before uploads can be authorized.' } };
-  }
-
-  if (request.headers[uploadAuthHeader] !== expectedKey) {
-    return { statusCode: 401, body: { message: 'Upload is not authorized.' } };
-  }
-
-  return null;
-}
-
 app.get('/health', async () => ({
   ok: true,
   service: 'aviary-api',
   databaseConfigured: Boolean(process.env.DATABASE_URL),
-  blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+  blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+  authConfigured: Boolean(process.env.NEON_AUTH_BASE_URL)
 }));
 
-app.get('/video-items', async () => {
+app.get('/video-items', async (request, reply) => {
+  const auth = await getRequestUserId(request.headers);
+  if ('statusCode' in auth) {
+    return reply.code(auth.statusCode).send(auth.body);
+  }
+
   const sql = getDatabase();
   if (!sql) {
     return { items: sampleVideoItems, source: 'sample' };
   }
 
-  const items = await listVideoItems(sql, devUserId);
+  const items = await listVideoItems(sql, auth.userId);
   return { items, source: 'database' };
 });
 
 app.get('/video-items/:id', async (request, reply) => {
+  const auth = await getRequestUserId(request.headers);
+  if ('statusCode' in auth) {
+    return reply.code(auth.statusCode).send(auth.body);
+  }
+
   const { id } = request.params as { id: string };
   const sql = getDatabase();
 
@@ -85,7 +82,7 @@ app.get('/video-items/:id', async (request, reply) => {
     return { detail: { item }, source: 'sample' };
   }
 
-  const detail = await getVideoItemDetail(sql, devUserId, id);
+  const detail = await getVideoItemDetail(sql, auth.userId, id);
   if (!detail) {
     return reply.code(404).send({ message: 'Video item not found.' });
   }
@@ -94,9 +91,9 @@ app.get('/video-items/:id', async (request, reply) => {
 });
 
 app.post('/video-items', async (request, reply) => {
-  const authorizationError = requireUploadAuthorization(request);
-  if (authorizationError) {
-    return reply.code(authorizationError.statusCode).send(authorizationError.body);
+  const auth = await getRequestUserId(request.headers);
+  if ('statusCode' in auth) {
+    return reply.code(auth.statusCode).send(auth.body);
   }
 
   const parsed = createVideoItemSchema.safeParse(request.body);
@@ -110,7 +107,7 @@ app.post('/video-items', async (request, reply) => {
   const sql = requireDatabase();
   const title = parsed.data.title ?? parsed.data.sourceUrl ?? 'Untitled capture';
   const video = await createVideoCapture(sql, {
-    userId: devUserId,
+    userId: auth.userId,
     title,
     sourceUrl: parsed.data.sourceUrl
   });
@@ -123,17 +120,17 @@ app.post('/video-items/upload', async (request, reply) => {
     return reply.code(503).send({ message: 'BLOB_READ_WRITE_TOKEN is required for uploads.' });
   }
 
+  const auth = await getRequestUserId(request.headers);
+  if ('statusCode' in auth) {
+    return reply.code(auth.statusCode).send(auth.body);
+  }
+
   try {
     const response = await handleUpload({
       body: request.body as HandleUploadBody,
       request: request.raw,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const authorizationError = requireUploadAuthorization(request);
-        if (authorizationError) {
-          throw new Error('Upload is not authorized.');
-        }
-
         if (!pathname.startsWith('uploads/')) {
           throw new Error('Upload path is not allowed.');
         }
@@ -141,7 +138,7 @@ app.post('/video-items/upload', async (request, reply) => {
         return {
           allowedContentTypes: ['audio/*', 'video/*'],
           maximumSizeInBytes: maxUploadSizeBytes,
-          tokenPayload: clientPayload,
+          tokenPayload: clientPayload ?? auth.userId,
           addRandomSuffix: false
         };
       }
@@ -156,9 +153,9 @@ app.post('/video-items/upload', async (request, reply) => {
 });
 
 app.post('/video-items/upload-complete', async (request, reply) => {
-  const authorizationError = requireUploadAuthorization(request);
-  if (authorizationError) {
-    return reply.code(authorizationError.statusCode).send(authorizationError.body);
+  const auth = await getRequestUserId(request.headers);
+  if ('statusCode' in auth) {
+    return reply.code(auth.statusCode).send(auth.body);
   }
 
   const parsed = completeVideoUploadSchema.safeParse(request.body);
@@ -171,7 +168,7 @@ app.post('/video-items/upload-complete', async (request, reply) => {
 
   const sql = requireDatabase();
   const video = await createVideoCapture(sql, {
-    userId: devUserId,
+    userId: auth.userId,
     title: parsed.data.filename,
     originalFileUrl: parsed.data.blob.url,
     originalFilePath: parsed.data.blob.pathname,

@@ -16,6 +16,6 @@ export default {
       return json({ message: 'Video item id is required.' }, 400);
     }
 
-    return getVideoDetail(videoId);
+    return getVideoDetail(request, videoId);
   }
 };
